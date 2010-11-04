@@ -7,7 +7,8 @@ HEROKU_SETTINGS =
     {} 
   end
 
-(HEROKU_SETTINGS['apps'] || []).each do |name, app|
+(HEROKU_SETTINGS['apps'] || []).each do |name, config|
+  app = config['app']
   desc "Select #{name} Heroku app for later commands"
   task name do
     @heroku_apps ||= [] 
@@ -104,6 +105,35 @@ namespace :heroku do
       system_with_echo("#{ENV['EDITOR']} #{HEROKU_CONFIG_FILE}")
     end
   end
+  
+  namespace :stack do
+    desc "prepare migration to stack specified in heroku.yml"
+    task :migrate do
+      each_heroku_app do |name, app, repo|
+        stack = HEROKU_SETTINGS['apps'][name]['stack']
+        system_with_echo "heroku stack:migrate #{stack} --app #{app}"
+      end
+    end
+  end
+  
+  namespace :config do
+    desc "add one or more env vars specified in vars.yml"
+    task :upsert do # cribbed from mongodb
+      vars_config_file = Rails.root.join('config', 'vars.yml')
+      vars_data = YAML.load_file(vars_config_file)
+      each_heroku_app do |name, app, repo|
+        if vars_data.nil?
+          puts "You must first specify config vars for the #{name} app"
+        else
+          vars = vars_data[name]
+          command = "heroku config:add"
+          vars.each {|key, value| command << " #{key}='#{value}' " if value }
+          system_with_echo "#{command} --app #{app}"
+        end
+      end
+    end
+  end
+  
 end
 
 desc "Deploys, migrates and restarts latest code"
@@ -193,7 +223,8 @@ def each_heroku_app
   end
   if @heroku_apps.present?
     @heroku_apps.each do |name|
-      app = HEROKU_SETTINGS['apps'][name]
+      config = HEROKU_SETTINGS['apps'][name]
+      app = config['app']
       yield(name, app, "git@heroku.com:#{app}.git")
     end
     puts
